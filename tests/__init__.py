@@ -1,0 +1,1 @@
+"""Tests for ore-xccy-curve package."""
