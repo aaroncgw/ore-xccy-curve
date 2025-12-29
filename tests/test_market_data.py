@@ -18,10 +18,9 @@ class TestFXForwardQuote:
 
     def test_creation(self):
         """Test FXForwardQuote creation."""
-        quote = FXForwardQuote(tenor="3M", forward_points=-38.0, days=90)
+        quote = FXForwardQuote(tenor="3M", forward_points=-38.0)
         assert quote.tenor == "3M"
         assert quote.forward_points == -38.0
-        assert quote.days == 90
 
 
 class TestXCCYBasisSwapQuote:
@@ -29,10 +28,9 @@ class TestXCCYBasisSwapQuote:
 
     def test_creation(self):
         """Test XCCYBasisSwapQuote creation."""
-        quote = XCCYBasisSwapQuote(tenor="5Y", basis_spread=-17.5, years=5)
+        quote = XCCYBasisSwapQuote(tenor="5Y", basis_spread=-17.5)
         assert quote.tenor == "5Y"
         assert quote.basis_spread == -17.5
-        assert quote.years == 5
 
 
 class TestCurrencyConfig:
@@ -143,14 +141,24 @@ class TestMarketDataFactory:
         assert data.domestic_ccy.ccy == "USD"
         assert data.foreign_ccy.ccy == "EUR"
         assert data.foreign_ccy.ois_index_name == "ESTR"
+        assert data.fx_base_ccy == "EUR"  # Auto-detected as foreign
+        assert data.is_fx_base_domestic is False  # EUR is FX base, USD is collateral
 
     def test_create_usdjpy(self):
-        """Test creating USDJPY data."""
+        """Test creating USDJPY data.
+
+        For USDJPY, USD is still the domestic (collateral) currency.
+        JPY is foreign. The FX base currency (USD) equals the collateral.
+        """
         data = MarketDataFactory.create_usdjpy()
-        assert data.ccy_pair == "JPYUSD"  # Foreign + Domestic
+        assert data.ccy_pair == "USDJPY"
         assert data.fx_spot == 148.50
+        assert data.domestic_ccy.ccy == "USD"
+        assert data.domestic_ccy.ois_index_name == "SOFR"
         assert data.foreign_ccy.ccy == "JPY"
         assert data.foreign_ccy.ois_index_name == "TONAR"
+        assert data.fx_base_ccy == "USD"
+        assert data.is_fx_base_domestic is True  # USD is both FX base and collateral
 
     def test_currency_configs_available(self):
         """Test that common currency configs are available."""

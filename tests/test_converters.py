@@ -1,4 +1,4 @@
-"""Tests for converter functions."""
+"""Tests for curve converters, savers, and loaders."""
 
 import tempfile
 from pathlib import Path
@@ -8,17 +8,21 @@ import pytest
 # Try to import ORE - skip tests if not available
 try:
     import ORE as ore
-    from ore_xccy_curve.converters import (
+    from ore_xccy_curve.curve_converters import (
         create_flat_forward_curve,
-        extract_curve_points,
         get_discount_factors,
         get_zero_rates,
-        load_curve_from_csv,
-        load_curve_from_json,
         ore_curve_to_quantlib,
         ore_handle_to_curve,
         quantlib_curve_to_ore_handle,
         quantlib_curve_to_relinkable_handle,
+    )
+    from ore_xccy_curve.curve_loaders import (
+        load_curve_from_csv,
+        load_curve_from_json,
+    )
+    from ore_xccy_curve.curve_savers import (
+        extract_curve_points,
         save_curve_to_csv,
         save_curve_to_json,
     )
@@ -349,19 +353,19 @@ class TestCurvePersistenceCSV:
             assert "TEST_CURVE" in content
             assert "discount_factor" in content
 
-            # Load
-            loaded_handle = load_curve_from_csv(csv_path)
+            # Load (returns QuantLib curve, not handle)
+            loaded_curve = load_curve_from_csv(csv_path)
 
             # Compare discount factors
             date_1y = eval_date + ore.Period(1, ore.Years)
             date_5y = eval_date + ore.Period(5, ore.Years)
 
             orig_df_1y = original_handle.discount(date_1y)
-            loaded_df_1y = loaded_handle.discount(date_1y)
+            loaded_df_1y = loaded_curve.discount(date_1y)
             assert abs(orig_df_1y - loaded_df_1y) < 1e-10
 
             orig_df_5y = original_handle.discount(date_5y)
-            loaded_df_5y = loaded_handle.discount(date_5y)
+            loaded_df_5y = loaded_curve.discount(date_5y)
             assert abs(orig_df_5y - loaded_df_5y) < 1e-10
         finally:
             csv_path.unlink(missing_ok=True)
@@ -375,11 +379,11 @@ class TestCurvePersistenceCSV:
 
         try:
             save_curve_to_csv(original_handle, csv_path, tenors=["1Y", "5Y", "10Y"])
-            loaded_handle = load_curve_from_csv(csv_path, use_discount_factors=False)
+            loaded_curve = load_curve_from_csv(csv_path, use_discount_factors=False)
 
             # Should still produce valid curve
             date_5y = eval_date + ore.Period(5, ore.Years)
-            df = loaded_handle.discount(date_5y)
+            df = loaded_curve.discount(date_5y)
             assert 0 < df < 1
         finally:
             csv_path.unlink(missing_ok=True)
@@ -420,19 +424,19 @@ class TestCurvePersistenceJSON:
             assert data["curve_name"] == "TEST_CURVE"
             assert len(data["points"]) == 3
 
-            # Load
-            loaded_handle = load_curve_from_json(json_path)
+            # Load (returns QuantLib curve, not handle)
+            loaded_curve = load_curve_from_json(json_path)
 
             # Compare discount factors
             date_1y = eval_date + ore.Period(1, ore.Years)
             date_5y = eval_date + ore.Period(5, ore.Years)
 
             orig_df_1y = original_handle.discount(date_1y)
-            loaded_df_1y = loaded_handle.discount(date_1y)
+            loaded_df_1y = loaded_curve.discount(date_1y)
             assert abs(orig_df_1y - loaded_df_1y) < 1e-10
 
             orig_df_5y = original_handle.discount(date_5y)
-            loaded_df_5y = loaded_handle.discount(date_5y)
+            loaded_df_5y = loaded_curve.discount(date_5y)
             assert abs(orig_df_5y - loaded_df_5y) < 1e-10
         finally:
             json_path.unlink(missing_ok=True)
@@ -446,11 +450,11 @@ class TestCurvePersistenceJSON:
 
         try:
             save_curve_to_json(original_handle, json_path, tenors=["1Y", "5Y", "10Y"])
-            loaded_handle = load_curve_from_json(json_path, use_discount_factors=False)
+            loaded_curve = load_curve_from_json(json_path, use_discount_factors=False)
 
             # Should still produce valid curve
             date_5y = eval_date + ore.Period(5, ore.Years)
-            df = loaded_handle.discount(date_5y)
+            df = loaded_curve.discount(date_5y)
             assert 0 < df < 1
         finally:
             json_path.unlink(missing_ok=True)

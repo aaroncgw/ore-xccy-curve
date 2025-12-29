@@ -273,6 +273,11 @@ class XCCYCurveBuilder:
 
         helpers = []
 
+        # Determine if FX base currency equals collateral (domestic) currency
+        # For GBPUSD: fx_base=GBP, domestic=USD → False
+        # For USDJPY: fx_base=USD, domestic=USD → True
+        is_fx_base_collateral = self.market_data.is_fx_base_domestic
+
         # Add FX forward helpers for short end
         for fwd in self.market_data.fx_forwards:
             fwd_points = fwd.forward_points / 10000.0
@@ -287,13 +292,20 @@ class XCCYCurveBuilder:
                 self.joint_calendar,
                 ore.ModifiedFollowing,
                 True,  # end of month
-                True,  # isFxBaseCurrencyCollateralCurrency
+                is_fx_base_collateral,  # isFxBaseCurrencyCollateralCurrency
                 self.domestic_discount_curve,
             )
             helpers.append(helper)
 
         # Add cross-currency basis swap helpers for long end
-        # Use index curves for rate projections (not discount curves)
+        # Use mark-to-market reset helpers (market standard for XCCY basis swaps)
+        #
+        # MtM XCCY Basis Swap structure:
+        # - Flat leg (USD): Notional RESETS at each period based on FX fixing, pays SOFR flat
+        # - Spread leg (foreign): FIXED notional, pays foreign OIS + basis spread
+        #
+        # This protects USD-based investors: the foreign notional is fixed, and the
+        # USD notional adjusts to match current FX value, minimizing credit exposure.
         domestic_index = OISIndexFactory.create(
             self.market_data.domestic_ccy.ois_index_name,
             self.domestic_index_curve,
@@ -308,23 +320,24 @@ class XCCYCurveBuilder:
             spread_quote = ore.QuoteHandle(ore.SimpleQuote(spread))
             period = self._tenor_to_period(swap.tenor)
 
-            helper = ore.CrossCcyBasisSwapHelper(
-                spread_quote,
-                fx_spot_quote,
+            # Use MtM reset helper - market standard for XCCY basis swaps
+            helper = ore.CrossCcyBasisMtMResetSwapHelper(
+                spread_quote,                    # basis spread on foreign leg
+                fx_spot_quote,                   # FX spot rate
                 self.settlement_days,
                 self.joint_calendar,
                 period,
                 ore.ModifiedFollowing,
-                domestic_index,
-                foreign_index,
-                self.domestic_discount_curve,
-                xccy_curve_handle,
-                True,   # flatIndexGiven
-                True,   # spreadIndexGiven
-                True,   # flatDiscountCurveGiven
-                False,  # spreadDiscountCurveGiven
-                False,  # eom
-                True,   # flatIsDomestic
+                domestic_index,                  # flatIndex (USD, notional RESETS)
+                foreign_index,                   # spreadIndex (foreign, FIXED notional)
+                self.domestic_discount_curve,    # flatDiscountCurve (USD discount)
+                xccy_curve_handle,               # spreadDiscountCurve (being bootstrapped)
+                True,                            # flatIndexGiven
+                True,                            # spreadIndexGiven
+                True,                            # flatDiscountCurveGiven
+                False,                           # spreadDiscountCurveGiven
+                self.domestic_index_curve,       # flatIndexCurve (for USD rate projections)
+                self.foreign_index_curve,        # spreadIndexCurve (for foreign rate projections)
             )
             helpers.append(helper)
 

@@ -327,10 +327,20 @@ class TestXCCYCurveBuilderMultiplePairs:
         assert xccy_builder.foreign_ccy == "EUR"
         assert xccy_builder.foreign_xccy_curve is not None
 
-    def test_build_usdjpy_curves(self, eval_date: ore.Date, usd_curve):
-        """Test building USDJPY curves."""
+    def test_build_usdjpy_curves(self, eval_date: ore.Date):
+        """Test building USDJPY curves.
+
+        For USDJPY, USD is still the domestic (collateral) currency.
+        JPY is foreign. This builds a JPY XCCY curve collateralized in USD.
+        The FX base currency (USD) equals the collateral, which differs from
+        GBPUSD where the FX base (GBP) is not the collateral.
+        """
         market_data = MarketDataFactory.create_usdjpy()
 
+        # USD is domestic (collateral), JPY is foreign
+        usd_curve = OISCurveBuilder(
+            eval_date, market_data.domestic_ccy, get_dummy_usd_ois_rates()
+        ).build()
         jpy_curve = OISCurveBuilder(
             eval_date, market_data.foreign_ccy, get_dummy_jpy_ois_rates()
         ).build()
@@ -343,6 +353,9 @@ class TestXCCYCurveBuilderMultiplePairs:
         )
 
         xccy_builder = result["xccy_builder"]
+        assert xccy_builder.ccy_pair == "USDJPY"
         assert xccy_builder.domestic_ccy == "USD"
         assert xccy_builder.foreign_ccy == "JPY"
         assert xccy_builder.foreign_xccy_curve is not None
+        # Verify FX base equals collateral for USDJPY
+        assert market_data.is_fx_base_domestic is True

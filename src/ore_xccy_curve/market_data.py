@@ -16,7 +16,6 @@ class FXForwardQuote:
 
     tenor: str  # e.g., "1M", "3M", "6M", "1Y"
     forward_points: float  # Forward points in pips
-    days: int  # Days to maturity
 
 
 @dataclass
@@ -25,7 +24,6 @@ class XCCYBasisSwapQuote:
 
     tenor: str  # e.g., "2Y", "5Y", "10Y"
     basis_spread: float  # Basis spread in bps
-    years: int  # Years to maturity
 
 
 @dataclass
@@ -52,19 +50,47 @@ class XCCYMarketData:
 
     The domestic and foreign OIS curves are expected to be built separately
     and passed to XCCYCurveBuilder as pre-built curves.
+
+    FX Convention:
+    - fx_spot is in market convention (e.g., GBPUSD=1.27, USDJPY=148.50)
+    - fx_base_ccy indicates which currency is the FX base (first in pair name)
+    - For GBPUSD: fx_base_ccy="GBP" (not collateral)
+    - For USDJPY: fx_base_ccy="USD" (equals collateral)
     """
 
     valuation_date: date
-    domestic_ccy: CurrencyConfig  # Collateral/domestic currency (e.g., USD)
+    domestic_ccy: CurrencyConfig  # Collateral/domestic currency (always USD for the user)
     foreign_ccy: CurrencyConfig  # Foreign currency (e.g., GBP, EUR, JPY)
-    fx_spot: float  # FX spot rate (foreign per domestic, e.g., GBPUSD = 1.27)
+    fx_spot: float  # FX spot rate in market convention
     fx_forwards: List[FXForwardQuote] = field(default_factory=list)
     xccy_basis_swaps: List[XCCYBasisSwapQuote] = field(default_factory=list)
+    fx_base_ccy: Optional[str] = None  # FX base currency (first in pair), auto-detected if None
+
+    def __post_init__(self):
+        """Auto-detect fx_base_ccy if not provided."""
+        if self.fx_base_ccy is None:
+            # Default: assume foreign currency is FX base (works for GBPUSD, EURUSD, AUDUSD)
+            # Override in factory methods for pairs like USDJPY where USD is FX base
+            self.fx_base_ccy = self.foreign_ccy.ccy
 
     @property
     def ccy_pair(self) -> str:
-        """Return the currency pair string (e.g., 'GBPUSD')."""
-        return f"{self.foreign_ccy.ccy}{self.domestic_ccy.ccy}"
+        """Return the currency pair string in market convention (e.g., 'GBPUSD', 'USDJPY')."""
+        fx_quote_ccy = (
+            self.domestic_ccy.ccy if self.fx_base_ccy == self.foreign_ccy.ccy
+            else self.foreign_ccy.ccy
+        )
+        return f"{self.fx_base_ccy}{fx_quote_ccy}"
+
+    @property
+    def is_fx_base_domestic(self) -> bool:
+        """Return True if FX base currency equals domestic (collateral) currency.
+
+        This affects how the FX spot is interpreted in the curve helpers:
+        - GBPUSD: fx_base=GBP, domestic=USD → False
+        - USDJPY: fx_base=USD, domestic=USD → True
+        """
+        return self.fx_base_ccy == self.domestic_ccy.ccy
 
     def get_forward_rate(self, tenor: str) -> float:
         """Get the outright forward rate for a given tenor."""
@@ -126,25 +152,25 @@ class MarketDataFactory:
             foreign_ccy=cls.CURRENCY_CONFIGS["GBP"],
             fx_spot=1.2750,
             fx_forwards=[
-                FXForwardQuote("1W", -2.5, 7),
-                FXForwardQuote("2W", -5.0, 14),
-                FXForwardQuote("1M", -12.0, 30),
-                FXForwardQuote("2M", -24.0, 60),
-                FXForwardQuote("3M", -38.0, 90),
-                FXForwardQuote("6M", -78.0, 180),
-                FXForwardQuote("9M", -115.0, 270),
-                FXForwardQuote("1Y", -155.0, 365),
+                FXForwardQuote("1W", -2.5),
+                FXForwardQuote("2W", -5.0),
+                FXForwardQuote("1M", -12.0),
+                FXForwardQuote("2M", -24.0),
+                FXForwardQuote("3M", -38.0),
+                FXForwardQuote("6M", -78.0),
+                FXForwardQuote("9M", -115.0),
+                FXForwardQuote("1Y", -155.0),
             ],
             xccy_basis_swaps=[
-                XCCYBasisSwapQuote("2Y", -12.5, 2),
-                XCCYBasisSwapQuote("3Y", -15.0, 3),
-                XCCYBasisSwapQuote("4Y", -16.5, 4),
-                XCCYBasisSwapQuote("5Y", -17.5, 5),
-                XCCYBasisSwapQuote("7Y", -18.0, 7),
-                XCCYBasisSwapQuote("10Y", -17.0, 10),
-                XCCYBasisSwapQuote("15Y", -15.0, 15),
-                XCCYBasisSwapQuote("20Y", -13.0, 20),
-                XCCYBasisSwapQuote("30Y", -10.0, 30),
+                XCCYBasisSwapQuote("2Y", -12.5),
+                XCCYBasisSwapQuote("3Y", -15.0),
+                XCCYBasisSwapQuote("4Y", -16.5),
+                XCCYBasisSwapQuote("5Y", -17.5),
+                XCCYBasisSwapQuote("7Y", -18.0),
+                XCCYBasisSwapQuote("10Y", -17.0),
+                XCCYBasisSwapQuote("15Y", -15.0),
+                XCCYBasisSwapQuote("20Y", -13.0),
+                XCCYBasisSwapQuote("30Y", -10.0),
             ],
         )
 
@@ -160,31 +186,43 @@ class MarketDataFactory:
             foreign_ccy=cls.CURRENCY_CONFIGS["EUR"],
             fx_spot=1.0850,
             fx_forwards=[
-                FXForwardQuote("1W", 1.5, 7),
-                FXForwardQuote("2W", 3.0, 14),
-                FXForwardQuote("1M", 7.0, 30),
-                FXForwardQuote("2M", 14.0, 60),
-                FXForwardQuote("3M", 22.0, 90),
-                FXForwardQuote("6M", 45.0, 180),
-                FXForwardQuote("9M", 68.0, 270),
-                FXForwardQuote("1Y", 92.0, 365),
+                FXForwardQuote("1W", 1.5),
+                FXForwardQuote("2W", 3.0),
+                FXForwardQuote("1M", 7.0),
+                FXForwardQuote("2M", 14.0),
+                FXForwardQuote("3M", 22.0),
+                FXForwardQuote("6M", 45.0),
+                FXForwardQuote("9M", 68.0),
+                FXForwardQuote("1Y", 92.0),
             ],
             xccy_basis_swaps=[
-                XCCYBasisSwapQuote("2Y", -8.0, 2),
-                XCCYBasisSwapQuote("3Y", -10.0, 3),
-                XCCYBasisSwapQuote("4Y", -11.5, 4),
-                XCCYBasisSwapQuote("5Y", -12.5, 5),
-                XCCYBasisSwapQuote("7Y", -13.0, 7),
-                XCCYBasisSwapQuote("10Y", -12.0, 10),
-                XCCYBasisSwapQuote("15Y", -10.0, 15),
-                XCCYBasisSwapQuote("20Y", -8.5, 20),
-                XCCYBasisSwapQuote("30Y", -7.0, 30),
+                XCCYBasisSwapQuote("2Y", -8.0),
+                XCCYBasisSwapQuote("3Y", -10.0),
+                XCCYBasisSwapQuote("4Y", -11.5),
+                XCCYBasisSwapQuote("5Y", -12.5),
+                XCCYBasisSwapQuote("7Y", -13.0),
+                XCCYBasisSwapQuote("10Y", -12.0),
+                XCCYBasisSwapQuote("15Y", -10.0),
+                XCCYBasisSwapQuote("20Y", -8.5),
+                XCCYBasisSwapQuote("30Y", -7.0),
             ],
         )
 
     @classmethod
     def create_usdjpy(cls, valuation_date: Optional[date] = None) -> XCCYMarketData:
-        """Create dummy USDJPY market data."""
+        """
+        Create dummy USDJPY market data.
+
+        Note: For USDJPY, USD is still the domestic (collateral) currency since
+        trading accounts are denominated in USD. JPY is the foreign currency.
+        The fx_spot is expressed in market convention (JPY per USD = 148.50).
+
+        The FX base currency (USD) equals the collateral currency, which differs
+        from GBPUSD where the FX base (GBP) is not the collateral (USD).
+        This affects the isFxBaseCurrencyCollateralCurrency flag in the helpers.
+
+        This builds the JPY XCCY curve collateralized in USD.
+        """
         if valuation_date is None:
             valuation_date = date(2024, 1, 15)
 
@@ -192,27 +230,28 @@ class MarketDataFactory:
             valuation_date=valuation_date,
             domestic_ccy=cls.CURRENCY_CONFIGS["USD"],
             foreign_ccy=cls.CURRENCY_CONFIGS["JPY"],
-            fx_spot=148.50,  # USDJPY convention
+            fx_spot=148.50,  # USDJPY: JPY per USD (market convention)
+            fx_base_ccy="USD",  # USD is FX base (unlike GBPUSD where GBP is FX base)
             fx_forwards=[
-                FXForwardQuote("1W", -8.0, 7),
-                FXForwardQuote("2W", -16.0, 14),
-                FXForwardQuote("1M", -35.0, 30),
-                FXForwardQuote("2M", -72.0, 60),
-                FXForwardQuote("3M", -110.0, 90),
-                FXForwardQuote("6M", -225.0, 180),
-                FXForwardQuote("9M", -340.0, 270),
-                FXForwardQuote("1Y", -460.0, 365),
+                FXForwardQuote("1W", -8.0),
+                FXForwardQuote("2W", -16.0),
+                FXForwardQuote("1M", -35.0),
+                FXForwardQuote("2M", -72.0),
+                FXForwardQuote("3M", -110.0),
+                FXForwardQuote("6M", -225.0),
+                FXForwardQuote("9M", -340.0),
+                FXForwardQuote("1Y", -460.0),
             ],
             xccy_basis_swaps=[
-                XCCYBasisSwapQuote("2Y", -25.0, 2),
-                XCCYBasisSwapQuote("3Y", -28.0, 3),
-                XCCYBasisSwapQuote("4Y", -30.0, 4),
-                XCCYBasisSwapQuote("5Y", -32.0, 5),
-                XCCYBasisSwapQuote("7Y", -33.0, 7),
-                XCCYBasisSwapQuote("10Y", -30.0, 10),
-                XCCYBasisSwapQuote("15Y", -25.0, 15),
-                XCCYBasisSwapQuote("20Y", -22.0, 20),
-                XCCYBasisSwapQuote("30Y", -18.0, 30),
+                XCCYBasisSwapQuote("2Y", -25.0),
+                XCCYBasisSwapQuote("3Y", -28.0),
+                XCCYBasisSwapQuote("4Y", -30.0),
+                XCCYBasisSwapQuote("5Y", -32.0),
+                XCCYBasisSwapQuote("7Y", -33.0),
+                XCCYBasisSwapQuote("10Y", -30.0),
+                XCCYBasisSwapQuote("15Y", -25.0),
+                XCCYBasisSwapQuote("20Y", -22.0),
+                XCCYBasisSwapQuote("30Y", -18.0),
             ],
         )
 
