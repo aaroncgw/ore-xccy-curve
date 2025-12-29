@@ -300,12 +300,12 @@ class XCCYCurveBuilder:
         # Add cross-currency basis swap helpers for long end
         # Use mark-to-market reset helpers (market standard for XCCY basis swaps)
         #
-        # MtM XCCY Basis Swap structure:
-        # - Flat leg (USD): Notional RESETS at each period based on FX fixing, pays SOFR flat
-        # - Spread leg (foreign): FIXED notional, pays foreign OIS + basis spread
+        # MtM XCCY Basis Swap structure (ORE convention):
+        # - Domestic leg (USD): Notional RESETS at each period based on FX fixing
+        # - Foreign leg: FIXED notional, pays foreign OIS + basis spread
         #
-        # This protects USD-based investors: the foreign notional is fixed, and the
-        # USD notional adjusts to match current FX value, minimizing credit exposure.
+        # The spread is on the foreign leg (spreadOnForeignCcy=true by default).
+        # A negative basis (e.g., -12.5 bps) means foreign pays OIS - 12.5 bps.
         domestic_index = OISIndexFactory.create(
             self.market_data.domestic_ccy.ois_index_name,
             self.domestic_index_curve,
@@ -321,23 +321,24 @@ class XCCYCurveBuilder:
             period = self._tenor_to_period(swap.tenor)
 
             # Use MtM reset helper - market standard for XCCY basis swaps
+            # Parameter order: foreign first, domestic second (per ORE API)
             helper = ore.CrossCcyBasisMtMResetSwapHelper(
-                spread_quote,                    # basis spread on foreign leg
-                fx_spot_quote,                   # FX spot rate
-                self.settlement_days,
-                self.joint_calendar,
-                period,
-                ore.ModifiedFollowing,
-                domestic_index,                  # flatIndex (USD, notional RESETS)
-                foreign_index,                   # spreadIndex (foreign, FIXED notional)
-                self.domestic_discount_curve,    # flatDiscountCurve (USD discount)
-                xccy_curve_handle,               # spreadDiscountCurve (being bootstrapped)
-                True,                            # flatIndexGiven
-                True,                            # spreadIndexGiven
-                True,                            # flatDiscountCurveGiven
-                False,                           # spreadDiscountCurveGiven
-                self.domestic_index_curve,       # flatIndexCurve (for USD rate projections)
-                self.foreign_index_curve,        # spreadIndexCurve (for foreign rate projections)
+                spread_quote,                    # spreadQuote: basis spread (on foreign leg)
+                fx_spot_quote,                   # spotFX: FX spot rate
+                self.settlement_days,            # settlementDays
+                self.joint_calendar,             # settlementCalendar
+                period,                          # swapTenor
+                ore.ModifiedFollowing,           # rollConvention
+                foreign_index,                   # foreignCcyIndex (foreign, FIXED notional)
+                domestic_index,                  # domesticCcyIndex (USD, notional RESETS)
+                xccy_curve_handle,               # foreignCcyDiscountCurve (being bootstrapped)
+                self.domestic_discount_curve,    # domesticCcyDiscountCurve (USD discount)
+                True,                            # foreignIndexGiven
+                True,                            # domesticIndexGiven
+                False,                           # foreignDiscountCurveGiven (bootstrapping this)
+                True,                            # domesticDiscountCurveGiven
+                self.foreign_index_curve,        # foreignCcyFxFwdRateCurve
+                self.domestic_index_curve,       # domesticCcyFxFwdRateCurve
             )
             helpers.append(helper)
 
